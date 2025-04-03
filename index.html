@@ -136,6 +136,146 @@
         </div>
     </section>
 
+    <!-- Onewheel Mini Game Section -->
+    <section class="relative w-full h-[40vh] bg-gray-100 overflow-hidden">
+        <div id="instructions" class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white bg-opacity-70 text-gray-800 px-4 py-2 rounded shadow text-sm z-10">
+            Use 'A' to move Left, 'D' to move Right
+        </div>
+        <div id="game-container" class="w-full h-full relative"></div>
+    </section>
+
+    <!-- Game Script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer;
+        let onewheel, ground;
+        let gameContainer;
+        let moveLeft = false;
+        let moveRight = false;
+        const moveSpeed = 0.1;
+        const onewheelHalfWidth = 0.7;
+        let targetLeanAngle = 0;
+        const leanAngleAmount = Math.PI / 18;
+        const leanSpeed = 0.1;
+        const frustumSize = 6;
+
+        function init() {
+            gameContainer = document.getElementById('game-container');
+            if (!gameContainer) return;
+
+            const containerWidth = gameContainer.clientWidth;
+            const containerHeight = gameContainer.clientHeight;
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xabcdef);
+
+            const aspect = containerWidth / containerHeight;
+            camera = new THREE.OrthographicCamera(
+                frustumSize * aspect / -2,
+                frustumSize * aspect / 2,
+                frustumSize / 2,
+                frustumSize / -2,
+                1,
+                1000
+            );
+            camera.position.set(0, 1.5, 10);
+            camera.lookAt(0, 0.5, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(containerWidth, containerHeight);
+            gameContainer.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
+
+            const groundGeometry = new THREE.PlaneGeometry(1000, 10);
+            const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x888888, side: THREE.DoubleSide });
+            ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -0.5;
+            scene.add(ground);
+
+            onewheel = new THREE.Group();
+            const wheel = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.5, 0.5, 0.3, 32),
+                new THREE.MeshStandardMaterial({ color: 0x444444 })
+            );
+            wheel.rotation.x = Math.PI / 2;
+            onewheel.add(wheel);
+
+            const footpadGeometry = new THREE.BoxGeometry(1.2, 0.1, 0.5);
+            const frontPad = new THREE.Mesh(footpadGeometry, new THREE.MeshStandardMaterial({ color: 0x0000ff }));
+            frontPad.position.set(0.65, 0, 0);
+            onewheel.add(frontPad);
+
+            const backPad = new THREE.Mesh(footpadGeometry, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+            backPad.position.set(-0.65, 0, 0);
+            onewheel.add(backPad);
+
+            const centerBar = new THREE.Mesh(
+                new THREE.BoxGeometry(0.1, 0.1, 0.3),
+                new THREE.MeshStandardMaterial({ color: 0xaaaaaa })
+            );
+            centerBar.position.set(0, -0.05, 0);
+            onewheel.add(centerBar);
+
+            onewheel.position.y = 0;
+            scene.add(onewheel);
+
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function handleKeyDown(event) {
+            switch (event.key.toLowerCase()) {
+                case 'a': moveLeft = true; targetLeanAngle = leanAngleAmount; break;
+                case 'd': moveRight = true; targetLeanAngle = -leanAngleAmount; break;
+            }
+        }
+
+        function handleKeyUp(event) {
+            switch (event.key.toLowerCase()) {
+                case 'a': moveLeft = false; break;
+                case 'd': moveRight = false; break;
+            }
+            targetLeanAngle = moveLeft ? leanAngleAmount : moveRight ? -leanAngleAmount : 0;
+        }
+
+        function onWindowResize() {
+            if (!gameContainer || !camera || !renderer) return;
+            const containerWidth = gameContainer.clientWidth;
+            const containerHeight = gameContainer.clientHeight;
+            const aspect = containerWidth / containerHeight;
+            camera.left = frustumSize * aspect / -2;
+            camera.right = frustumSize * aspect / 2;
+            camera.top = frustumSize / 2;
+            camera.bottom = frustumSize / -2;
+            camera.updateProjectionMatrix();
+            renderer.setSize(containerWidth, containerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            let x = onewheel.position.x;
+            if (moveLeft) x -= moveSpeed;
+            if (moveRight) x += moveSpeed;
+            const minX = camera.left + onewheelHalfWidth;
+            const maxX = camera.right - onewheelHalfWidth;
+            onewheel.position.x = Math.max(minX, Math.min(x, maxX));
+            onewheel.rotation.z += (targetLeanAngle - onewheel.rotation.z) * leanSpeed;
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function () {
+            init();
+            animate();
+        };
+    </script>
+
     <!-- Airbnb of Onewheel Rentals Section -->
     <section class="py-16 bg-gradient-to-r from-blue-100 via-blue-50 to-white text-gray-800">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
