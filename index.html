@@ -30,6 +30,49 @@
                 box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
             }
         }
+
+        #game-container canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #joystick-container {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            border-radius: 50%;
+            user-select: none;
+        }
+
+        #joystick-base {
+            width: 80px;
+            height: 80px;
+            background-color: rgba(128, 128, 128, 0.5);
+            border-radius: 50%;
+            position: absolute;
+        }
+
+        #joystick-handle {
+            width: 40px;
+            height: 40px;
+            background-color: rgba(80, 80, 80, 0.8);
+            border-radius: 50%;
+            position: absolute;
+            cursor: grab;
+            transition: transform 0.1s linear;
+        }
+
+        #joystick-handle:active {
+            cursor: grabbing;
+        }
+
     </style>
 </head>
 <body class="font-sans antialiased text-gray-800">
@@ -136,17 +179,20 @@
         </div>
     </section>
 
-    <!-- Onewheel Mini Game Section -->
-    <section class="relative w-full h-[40vh] bg-gray-100 overflow-hidden">
-        <div id="instructions" class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white bg-opacity-70 text-gray-800 px-4 py-2 rounded shadow text-sm z-10">
-            Use 'A' to move Left, 'D' to move Right
+    <!-- Onewheel Mini Game with Joystick -->
+    <section class="relative w-full h-[40vh] bg-[#abcdef] overflow-hidden" id="game-container">
+        <div id="instructions" class="absolute top-2 left-1/2 transform -translate-x-1/2 bg-white bg-opacity-70 text-gray-800 px-4 py-2 rounded shadow text-sm z-10 pointer-events-none">
+            Use 'A'/'D' keys or the joystick to move
         </div>
-        <div id="game-container" class="w-full h-full relative"></div>
+        <div id="joystick-container">
+            <div id="joystick-base"></div>
+            <div id="joystick-handle"></div>
+        </div>
     </section>
 
-    <!-- Game Script -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
+        // --- Basic Setup ---
         let scene, camera, renderer;
         let onewheel, ground;
         let gameContainer;
@@ -154,43 +200,63 @@
         let moveRight = false;
         const moveSpeed = 0.1;
         const onewheelHalfWidth = 0.7;
+
+        // --- Lean Variables ---
         let targetLeanAngle = 0;
         const leanAngleAmount = Math.PI / 18;
         const leanSpeed = 0.1;
+
+        // --- Camera View Size ---
         const frustumSize = 6;
+
+        // --- Joystick Variables ---
+        let joystickHandle, joystickContainer;
+        let joystickActive = false;
+        let joystickStartX = 0;
+        let joystickStartY = 0;
+        let currentX = 0;
+        // Adjust max distance based on smaller size: (base_radius - handle_radius) = (40 - 20) = 20
+        const joystickMaxDistance = 20; // Was 40
+        const joystickDeadZone = 5;
 
         function init() {
             gameContainer = document.getElementById('game-container');
-            if (!gameContainer) return;
+            if (!gameContainer) {
+                console.error("Game container not found!");
+                return;
+            }
 
             const containerWidth = gameContainer.clientWidth;
             const containerHeight = gameContainer.clientHeight;
 
+            // Scene
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0xabcdef);
 
+            // Camera
             const aspect = containerWidth / containerHeight;
             camera = new THREE.OrthographicCamera(
-                frustumSize * aspect / -2,
-                frustumSize * aspect / 2,
-                frustumSize / 2,
-                frustumSize / -2,
-                1,
-                1000
+                frustumSize * aspect / -2, frustumSize * aspect / 2,
+                frustumSize / 2, frustumSize / -2,
+                1, 1000
             );
             camera.position.set(0, 1.5, 10);
             camera.lookAt(0, 0.5, 0);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(containerWidth, containerHeight);
+            renderer.setClearColor(0x000000, 0);
             gameContainer.appendChild(renderer.domElement);
 
+            // Lighting
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
             scene.add(ambientLight);
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
             directionalLight.position.set(5, 10, 7.5);
             scene.add(directionalLight);
 
+            // --- Game Objects ---
+            // Ground
             const groundGeometry = new THREE.PlaneGeometry(1000, 10);
             const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x888888, side: THREE.DoubleSide });
             ground = new THREE.Mesh(groundGeometry, groundMaterial);
@@ -198,53 +264,161 @@
             ground.position.y = -0.5;
             scene.add(ground);
 
+            // Onewheel Model
             onewheel = new THREE.Group();
-            const wheel = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.5, 0.5, 0.3, 32),
-                new THREE.MeshStandardMaterial({ color: 0x444444 })
-            );
+             // Wheel
+            const wheelGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.3, 32);
+            const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
+            const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
             wheel.rotation.x = Math.PI / 2;
             onewheel.add(wheel);
-
+            // Footpads (Blue and White)
             const footpadGeometry = new THREE.BoxGeometry(1.2, 0.1, 0.5);
-            const frontPad = new THREE.Mesh(footpadGeometry, new THREE.MeshStandardMaterial({ color: 0x0000ff }));
+            const frontPadMaterial = new THREE.MeshStandardMaterial({ color: 0x0000ff }); // Blue
+            const backPadMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); // White
+            const frontPad = new THREE.Mesh(footpadGeometry, frontPadMaterial);
             frontPad.position.set(0.65, 0, 0);
             onewheel.add(frontPad);
-
-            const backPad = new THREE.Mesh(footpadGeometry, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+            const backPad = new THREE.Mesh(footpadGeometry, backPadMaterial);
             backPad.position.set(-0.65, 0, 0);
             onewheel.add(backPad);
-
-            const centerBar = new THREE.Mesh(
-                new THREE.BoxGeometry(0.1, 0.1, 0.3),
-                new THREE.MeshStandardMaterial({ color: 0xaaaaaa })
-            );
+            // Center Bar
+            const centerBarGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.3);
+            const centerBarMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
+            const centerBar = new THREE.Mesh(centerBarGeometry, centerBarMaterial);
             centerBar.position.set(0, -0.05, 0);
             onewheel.add(centerBar);
 
             onewheel.position.y = 0;
             scene.add(onewheel);
 
+            // --- Initialize Joystick ---
+            initJoystick();
+
+            // --- Event Listeners ---
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('keyup', handleKeyUp);
             window.addEventListener('resize', onWindowResize);
         }
 
+        // --- Joystick Functions ---
+        function initJoystick() {
+            joystickContainer = document.getElementById('joystick-container');
+            joystickHandle = document.getElementById('joystick-handle');
+
+            if (!joystickHandle || !joystickContainer) {
+                console.error("Joystick elements not found!");
+                return;
+            }
+
+            // Touch Events
+            joystickHandle.addEventListener('touchstart', handleJoystickStart, { passive: false });
+            window.addEventListener('touchmove', handleJoystickMove, { passive: false });
+            window.addEventListener('touchend', handleJoystickEnd);
+
+            // Mouse Events
+            joystickHandle.addEventListener('mousedown', handleJoystickStart, { passive: false });
+            window.addEventListener('mousemove', handleJoystickMove, { passive: false });
+            window.addEventListener('mouseup', handleJoystickEnd);
+            document.addEventListener('mouseleave', handleJoystickEnd);
+        }
+
+        function handleJoystickStart(event) {
+            joystickActive = true;
+            joystickHandle.style.transition = 'none';
+            joystickHandle.style.cursor = 'grabbing';
+
+            if (event.touches) {
+                joystickStartX = event.touches[0].clientX;
+                joystickStartY = event.touches[0].clientY;
+            } else {
+                joystickStartX = event.clientX;
+                joystickStartY = event.clientY;
+            }
+             if (event.cancelable) event.preventDefault();
+        }
+
+        function handleJoystickMove(event) {
+            if (!joystickActive) return;
+             if (event.cancelable) event.preventDefault();
+
+            let currentClientX;
+            if (event.touches) {
+                currentClientX = event.touches[0].clientX;
+            } else {
+                currentClientX = event.clientX;
+            }
+
+            const rect = joystickContainer.getBoundingClientRect();
+            const containerCenterX = rect.left + rect.width / 2;
+            let deltaX = currentClientX - containerCenterX;
+
+            // Clamp distance using the updated joystickMaxDistance
+            const distance = Math.abs(deltaX); // Use Math.abs for 1D clamping check
+            if (distance > joystickMaxDistance) {
+                deltaX = (deltaX / distance) * joystickMaxDistance; // Maintain sign
+            }
+
+            currentX = deltaX;
+            joystickHandle.style.transform = `translate(${deltaX}px, 0px)`;
+            updateMovementFromJoystick();
+        }
+
+         function updateMovementFromJoystick() {
+             if (currentX < -joystickDeadZone) {
+                moveLeft = true; moveRight = false; targetLeanAngle = leanAngleAmount;
+            } else if (currentX > joystickDeadZone) {
+                moveLeft = false; moveRight = true; targetLeanAngle = -leanAngleAmount;
+            } else {
+                moveLeft = false; moveRight = false; targetLeanAngle = 0;
+            }
+         }
+
+        function handleJoystickEnd(event) {
+            if (!joystickActive) return;
+
+            joystickActive = false;
+            joystickHandle.style.transition = 'transform 0.1s linear';
+            joystickHandle.style.transform = 'translate(0px, 0px)';
+            joystickHandle.style.cursor = 'grab';
+            currentX = 0;
+
+             if (!isKeyDown('a') && !isKeyDown('d')) {
+                 moveLeft = false; moveRight = false; targetLeanAngle = 0;
+             } else {
+                if (isKeyDown('a')) { moveLeft = true; moveRight = false; targetLeanAngle = leanAngleAmount; }
+                else if (isKeyDown('d')) { moveLeft = false; moveRight = true; targetLeanAngle = -leanAngleAmount; }
+             }
+        }
+
+        // --- Keyboard Handling ---
+        const keyStates = {};
+        window.addEventListener('keydown', (e) => { keyStates[e.key.toLowerCase()] = true; });
+        window.addEventListener('keyup', (e) => { keyStates[e.key.toLowerCase()] = false; });
+        function isKeyDown(key) { return keyStates[key] === true; }
+
         function handleKeyDown(event) {
-            switch (event.key.toLowerCase()) {
-                case 'a': moveLeft = true; targetLeanAngle = leanAngleAmount; break;
-                case 'd': moveRight = true; targetLeanAngle = -leanAngleAmount; break;
+            if (joystickActive) return;
+            const key = event.key.toLowerCase();
+            keyStates[key] = true;
+            switch (key) {
+                case 'a': moveLeft = true; moveRight = false; targetLeanAngle = leanAngleAmount; break;
+                case 'd': moveRight = true; moveLeft = false; targetLeanAngle = -leanAngleAmount; break;
             }
         }
 
         function handleKeyUp(event) {
-            switch (event.key.toLowerCase()) {
-                case 'a': moveLeft = false; break;
-                case 'd': moveRight = false; break;
-            }
-            targetLeanAngle = moveLeft ? leanAngleAmount : moveRight ? -leanAngleAmount : 0;
+             const key = event.key.toLowerCase();
+             keyStates[key] = false;
+             if (!joystickActive) {
+                if (key === 'a' && !isKeyDown('d')) { moveLeft = false; targetLeanAngle = 0; }
+                else if (key === 'd' && !isKeyDown('a')) { moveRight = false; targetLeanAngle = 0; }
+                else if (key === 'a' && isKeyDown('d')) { moveLeft = false; moveRight = true; targetLeanAngle = -leanAngleAmount; }
+                else if (key === 'd' && isKeyDown('a')) { moveLeft = true; moveRight = false; targetLeanAngle = leanAngleAmount; }
+             }
         }
 
+        // --- Resize ---
         function onWindowResize() {
             if (!gameContainer || !camera || !renderer) return;
             const containerWidth = gameContainer.clientWidth;
@@ -258,22 +432,37 @@
             renderer.setSize(containerWidth, containerHeight);
         }
 
+        // --- Animation Loop ---
         function animate() {
             requestAnimationFrame(animate);
-            let x = onewheel.position.x;
-            if (moveLeft) x -= moveSpeed;
-            if (moveRight) x += moveSpeed;
+
+            // Update Logic
+            let potentialX = onewheel.position.x;
+            if (moveLeft) potentialX -= moveSpeed;
+            if (moveRight) potentialX += moveSpeed;
+
+            // Boundaries
             const minX = camera.left + onewheelHalfWidth;
             const maxX = camera.right - onewheelHalfWidth;
-            onewheel.position.x = Math.max(minX, Math.min(x, maxX));
-            onewheel.rotation.z += (targetLeanAngle - onewheel.rotation.z) * leanSpeed;
-            renderer.render(scene, camera);
+            potentialX = Math.max(minX, Math.min(potentialX, maxX));
+            onewheel.position.x = potentialX;
+
+            // Lean
+            let angleDifference = targetLeanAngle - onewheel.rotation.z;
+            onewheel.rotation.z += angleDifference * leanSpeed;
+
+            // Render
+            if (renderer && scene && camera) {
+                 renderer.render(scene, camera);
+            }
         }
 
-        window.onload = function () {
+        // Start
+        window.onload = function() {
             init();
             animate();
-        };
+        }
+
     </script>
 
     <!-- Airbnb of Onewheel Rentals Section -->
