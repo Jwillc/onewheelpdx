@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "routes": [
+    { "src": "/api/map-credentials", "dest": "/api/map-credentials.js" },
+    { "src": "/api/map-config", "dest": "/api/map-config.js" }
+  ]
+}
